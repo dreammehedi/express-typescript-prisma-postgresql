@@ -10,7 +10,7 @@ import {
 } from "../controllers/blog.controller.ts";
 import { pagination } from "../middleware/pagination.ts";
 import { validate } from "../middleware/validate.ts";
-import { blogSchema } from "../schema/schema.ts";
+import { blogSchema } from "../zod/blog.validation.ts";
 
 const BlogRouter: Router = Router();
 

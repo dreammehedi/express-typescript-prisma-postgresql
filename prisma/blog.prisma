@@ -1,0 +1,17 @@
+model Blog {
+  id String @id @default(uuid())
+  name String @unique
+  slug String @unique
+  description String
+  image String
+  category String
+  status String @default("active")
+  metaTitle String @default("")
+  metaDescription String @default("")
+  metaKeywords String[] @default([])
+  testing String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt()
+
+@@map("blog")
+}

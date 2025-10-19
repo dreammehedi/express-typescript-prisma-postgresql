@@ -4,7 +4,7 @@ import { ZodError } from "zod";
 export const validate = (schema: any) => {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
-      schema.parse(req.body); // validate request body
+      schema.parse(req.body);
       next();
     } catch (error: any) {
       if (error instanceof ZodError) {

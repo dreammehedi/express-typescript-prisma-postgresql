@@ -1,49 +1,144 @@
+import { PrismaClient } from "@prisma/client";
 import cors from "cors";
+import dotenv from "dotenv";
 import type { Express, NextFunction, Request, Response } from "express";
 import express from "express";
 import morgan from "morgan";
+import path from "path";
+import { fileURLToPath } from "url";
 import BlogRouter from "./routes/blog.routes.ts";
 import { PORT } from "./secrets.ts";
+
+dotenv.config();
+
+const prisma = new PrismaClient();
+
+// Configure __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const app: Express = express();
+
+// Set view engine
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "views"));
+
+// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan("dev")); // বিস্তারিত Apache style লগ
+app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
+// Validate environment
+const requiredEnvVars = ["NODE_ENV", "PORT", "DATABASE_URL"];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.error(`Missing required environment variable: ${envVar}`);
+    process.exit(1);
+  }
+}
+
+// CORS
+const allowedOrigins = ["http://localhost:5173"];
 app.use(
   cors({
-    origin: ["http://localhost:8800"],
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) === -1) {
+        const msg =
+          "CORS policy does not allow access from the specified origin.";
+        return callback(new Error(msg), false);
+      }
+      return callback(null, true);
+    },
     credentials: true,
   })
 );
 
+// ✅ Home route (EJS view)
 app.get("/", (_, res: Response) => {
-  res.send("Server is Running");
+  res.render("index", {
+    title: "Home",
+    message: "School Management System (SMS) Server Running...",
+  });
 });
 
+// Health route
 app.get("/health", (_, res: Response) => {
-  res.json({
+  res.render("health", {
+    title: "Server Health",
     success: true,
     message: "Server Running.",
-    time: new Date().toDateString(),
+    time: new Date().toISOString(),
   });
 });
 
-// routes
+// API routes
 app.use("/api", BlogRouter);
 
-// error handling
-
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || "Internal Server Error",
+// ✅ 404 (EJS error page)
+app.use((req, res) => {
+  res.status(404).render("error", {
+    title: "404 - Not Found",
+    message: "The page you're looking for doesn't exist.",
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port: ${PORT}`);
+// ✅ API error handler
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error("Error:", err);
+
+  if (err.code?.startsWith("P")) {
+    return res.status(400).json({
+      success: false,
+      status: 400,
+      message: "Database operation failed",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
+  }
+
+  if (err.name === "JsonWebTokenError") {
+    return res.status(401).json({
+      success: false,
+      status: 401,
+      message: "Invalid token",
+    });
+  }
+
+  res.status(err.status || 500).json({
+    success: false,
+    status: err.status || 500,
+    message: err.message || "Something went wrong!",
+    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+  });
 });
 
-// DATABASE_URL="postgres://6d4f6b0e8f54d4416b0761e670466bdba6fafcf65471510f09d3dcf9d51a7046:sk_OGiJvjdkcuWdxehWWIJR7@db.prisma.io:5432/postgres?sslmode=require"
+// Start server
+const server = app.listen(PORT, () => {
+  console.log(`🚀 Server is running on port ${PORT}`);
+});
+
+// Graceful shutdown
+const gracefulShutdown = async () => {
+  console.log("Received shutdown signal");
+  server.close(async () => {
+    console.log("Server closed");
+    try {
+      await prisma.$disconnect();
+      console.log("Database connection closed");
+      process.exit(0);
+    } catch (error) {
+      console.error("Error during shutdown:", error);
+      process.exit(1);
+    }
+  });
+};
+
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+  gracefulShutdown();
+});
+process.on("unhandledRejection", (error) => {
+  console.error("Unhandled Rejection:", error);
+  gracefulShutdown();
+});
